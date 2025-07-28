@@ -48,29 +48,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user) {
+      // Subscribe to vibes
       const vibesRef = db.collection('users').doc(user.uid).collection('vibes');
       const unsubscribeVibes = vibesRef.onSnapshot(snapshot => {
-        // If snapshot is empty and there are no pending writes, it means an old user
-        // without vibes. Let's create the default ones for them.
-        if (snapshot.empty && !snapshot.metadata.hasPendingWrites) {
-          console.log('User has no vibes, creating default ones.');
-          const batch = db.batch();
-          DEFAULT_VIBES.forEach(vibe => {
-            const newVibeRef = vibesRef.doc(vibe.id);
-            batch.set(newVibeRef, { name: vibe.name });
-          });
-          // This commit will trigger the snapshot listener again.
-          batch.commit().catch(e => console.error('Failed to create default vibes:', e));
-          // Set vibes locally for immediate UI update.
-          setVibes(DEFAULT_VIBES);
-        } else {
-          const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
-          // Only update if there are actually vibes, to prevent flicker with an empty array
-          // while the default ones are being written.
-          if (userVibes.length > 0) {
-            setVibes(userVibes);
-          }
-        }
+        const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
+        // The source of truth is Firestore. If it's empty, it's empty.
+        // A new user has default vibes created for them in LoginScreen.
+        setVibes(userVibes);
       });
       
       // Subscribe to ideas
@@ -102,34 +86,30 @@ const App: React.FC = () => {
       throw new Error("User is not authenticated. Cannot add idea.");
     }
 
-    // Let Firestore generate a new ID by creating a new document reference
-    const newIdeaRef = ideasCollectionRef.doc();
-    
-    // Prepare the data payload, WITHOUT the 'id' field
-    const ideaPayload = {
-      ...ideaData,
-      timestamp: Date.now(),
-      isArchived: false,
-      isPinned: false,
-    };
-
-    const batch = db.batch();
-
-    // Set the data for the new document
-    batch.set(newIdeaRef, ideaPayload);
-
-    // Update linked ideas to create a two-way link
-    if (ideaPayload.linkedIdeaIds && ideaPayload.linkedIdeaIds.length > 0) {
-      ideaPayload.linkedIdeaIds.forEach(linkedId => {
-        const linkedIdea = ideas.find(i => i.id === linkedId);
-        if (linkedIdea) {
-          const newLinkedIds = Array.from(new Set([...(linkedIdea.linkedIdeaIds || []), newIdeaRef.id]));
-          batch.update(ideasCollectionRef.doc(linkedId), { linkedIdeaIds: newLinkedIds });
-        }
-      });
-    }
-    
     try {
+      const newIdeaRef = ideasCollectionRef.doc();
+      
+      const ideaPayload = {
+        ...ideaData,
+        timestamp: Date.now(),
+        isArchived: false,
+        isPinned: false,
+      };
+
+      const batch = db.batch();
+
+      batch.set(newIdeaRef, ideaPayload);
+
+      // Atomically update linked ideas to create a two-way link
+      if (ideaPayload.linkedIdeaIds && ideaPayload.linkedIdeaIds.length > 0) {
+        // @ts-ignore - 'firebase' is a global from CDN
+        const FieldValue = firebase.firestore.FieldValue;
+        ideaPayload.linkedIdeaIds.forEach(linkedId => {
+          const linkedIdeaRef = ideasCollectionRef.doc(linkedId);
+          batch.update(linkedIdeaRef, { linkedIdeaIds: FieldValue.arrayUnion(newIdeaRef.id) });
+        });
+      }
+      
       await batch.commit();
       if (navigator.vibrate) navigator.vibrate(50);
     } catch (error) {
@@ -148,19 +128,31 @@ const App: React.FC = () => {
   
   const deleteIdea = async (idToDelete: string) => {
     if (!ideasCollectionRef) return;
-    const batch = db.batch();
-    batch.delete(ideasCollectionRef.doc(idToDelete));
+    try {
+      const batch = db.batch();
 
-    // Remove links from other ideas
-    ideas.forEach(idea => {
-      if (idea.linkedIdeaIds?.includes(idToDelete)) {
-        const updatedLinks = idea.linkedIdeaIds.filter(linkId => linkId !== idToDelete);
-        batch.update(ideasCollectionRef.doc(idea.id), { linkedIdeaIds: updatedLinks });
+      // Before deleting, query for all ideas that link to this one and remove the link.
+      // This prevents dangling references in the database.
+      const linkedFromSnapshot = await ideasCollectionRef.where('linkedIdeaIds', 'array-contains', idToDelete).get();
+      
+      if (!linkedFromSnapshot.empty) {
+        // @ts-ignore - 'firebase' is a global from CDN
+        const FieldValue = firebase.firestore.FieldValue;
+        linkedFromSnapshot.forEach(doc => {
+          batch.update(doc.ref, { linkedIdeaIds: FieldValue.arrayRemove(idToDelete) });
+        });
       }
-    });
 
-    await batch.commit();
-    if (navigator.vibrate) navigator.vibrate(100);
+      // Now, delete the idea itself.
+      batch.delete(ideasCollectionRef.doc(idToDelete));
+
+      await batch.commit();
+      if (navigator.vibrate) navigator.vibrate(100);
+
+    } catch (error) {
+      console.error('Error deleting idea:', error);
+      alert('خطا در حذف ایده. لطفاً دوباره تلاش کنید.');
+    }
   };
 
   const addVibe = (name: string) => {
