@@ -86,31 +86,41 @@ const App: React.FC = () => {
       throw new Error("User is not authenticated. Cannot add idea.");
     }
 
-    try {
-      const newIdeaRef = ideasCollectionRef.doc();
-      
-      const ideaPayload = {
-        ...ideaData,
-        timestamp: Date.now(),
-        isArchived: false,
-        isPinned: false,
-      };
+    // 1. Create a new document reference to get a unique ID upfront.
+    const newIdeaRef = ideasCollectionRef.doc();
+    
+    // 2. Create the full new idea object for the optimistic update.
+    const newIdea: Idea = {
+      id: newIdeaRef.id,
+      ...ideaData,
+      timestamp: Date.now(),
+      isArchived: false,
+      isPinned: false,
+    };
+    
+    // 3. Prepare the data for Firestore (without the 'id' field).
+    const { id, ...ideaToSave } = newIdea;
 
+    try {
       const batch = db.batch();
 
-      batch.set(newIdeaRef, ideaPayload);
+      batch.set(newIdeaRef, ideaToSave);
 
       // Atomically update linked ideas to create a two-way link
-      if (ideaPayload.linkedIdeaIds && ideaPayload.linkedIdeaIds.length > 0) {
+      if (ideaToSave.linkedIdeaIds && ideaToSave.linkedIdeaIds.length > 0) {
         // @ts-ignore - 'firebase' is a global from CDN
         const FieldValue = firebase.firestore.FieldValue;
-        ideaPayload.linkedIdeaIds.forEach(linkedId => {
+        ideaToSave.linkedIdeaIds.forEach(linkedId => {
           const linkedIdeaRef = ideasCollectionRef.doc(linkedId);
           batch.update(linkedIdeaRef, { linkedIdeaIds: FieldValue.arrayUnion(newIdeaRef.id) });
         });
       }
       
       await batch.commit();
+
+      // 4. Optimistically update the local state IMMEDIATELY after successful commit.
+      setIdeas(currentIdeas => [newIdea, ...currentIdeas]);
+      
       if (navigator.vibrate) navigator.vibrate(50);
     } catch (error) {
       console.error("Error committing new idea to Firestore:", error);
@@ -304,7 +314,7 @@ const App: React.FC = () => {
           <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
             <i className="ph-light ph-drop text-7xl text-purple-400 opacity-50 mb-6"></i>
             <h2 className="text-2xl font-bold text-white">ذهنت رو جاری کن...</h2>
-            <p className="text-slate-400 mt-2 max-w-sm">ایده‌ها مثل قطره‌های باران هستند. اولین قطره را با دکمه درخشان پایین صفحه اضافه کن.</p>
+            <p className="text-slate-400 mt-2 max-w-sm">اولین قطره را با دکمه درخشان پایین صفحه اضافه کن.</p>
           </div>
         ) : activeIdeas.length > 0 ? (
           <div className="columns-1 sm:columns-2 lg:columns-3 gap-4">
