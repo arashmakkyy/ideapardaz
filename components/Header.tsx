@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 interface HeaderProps {
-    userName: string | null;
     onManageVibes: () => void;
     onToggleArchived: () => void;
     isArchivedVisible: boolean;
     onExport: () => void;
     onImport: () => void;
-    onLogout: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ userName, onManageVibes, onToggleArchived, isArchivedVisible, onExport, onImport, onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ onManageVibes, onToggleArchived, isArchivedVisible, onExport, onImport }) => {
   const [isMenuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -30,17 +28,14 @@ const Header: React.FC<HeaderProps> = ({ userName, onManageVibes, onToggleArchiv
     action();
     setMenuOpen(false);
   };
-  
-  const greeting = userName ? `سلام، ${userName.split(' ')[0]}` : 'ایده‌پرداز';
 
   return (
     <header className="sticky top-0 z-30 p-4 bg-slate-900/50 backdrop-blur-lg">
       <div className="container mx-auto flex justify-between items-center">
         <h1 
-          className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-slate-100 to-slate-400 text-transparent bg-clip-text truncate"
-          title={userName ? `سلام، ${userName}` : 'ایده‌پرداز'}
+          className="text-3xl font-bold bg-gradient-to-r from-slate-100 to-slate-400 text-transparent bg-clip-text"
         >
-          {greeting}
+          ایده‌پرداز
         </h1>
         <div className="flex items-center gap-2">
            <button 
@@ -83,11 +78,6 @@ const Header: React.FC<HeaderProps> = ({ userName, onManageVibes, onToggleArchiv
                   <button onClick={() => handleMenuAction(onImport)} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-200 rounded-lg hover:bg-white/10 transition-colors" role="menuitem">
                     <i className="ph ph-import text-lg text-green-300"></i>
                     <span>وارد کردن (Import)</span>
-                  </button>
-                  <div className="h-px bg-white/10 my-1 mx-2"></div>
-                   <button onClick={() => handleMenuAction(onLogout)} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 rounded-lg hover:bg-red-500/10 transition-colors" role="menuitem">
-                    <i className="ph ph-sign-out text-lg"></i>
-                    <span>خروج از حساب</span>
                   </button>
               </div>
             )}
