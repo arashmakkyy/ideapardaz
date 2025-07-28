@@ -37,54 +37,10 @@ const App: React.FC = () => {
 
   // Effect to save ideas to localStorage whenever they change
   useEffect(() => {
-<<<<<<< HEAD
     try {
       window.localStorage.setItem('ideas', JSON.stringify(ideas));
     } catch (error) {
       console.error('Error saving ideas to localStorage:', error);
-=======
-    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      if (firebaseUser) {
-        // User is logged in. Fetch their profile from Firestore to get the full name.
-        const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-        const displayName = userDoc.exists ? userDoc.data()?.displayName : firebaseUser.displayName;
-        setUser({ ...firebaseUser, displayName });
-      } else {
-        // User is logged out.
-        setUser(null);
-      }
-      setLoadingAuth(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      // Subscribe to vibes
-      const vibesRef = db.collection('users').doc(user.uid).collection('vibes');
-      const unsubscribeVibes = vibesRef.onSnapshot(snapshot => {
-        const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
-        // The source of truth is Firestore. If it's empty, it's empty.
-        // A new user has default vibes created for them in LoginScreen.
-        setVibes(userVibes);
-      });
-      
-      // Subscribe to ideas
-      const unsubscribeIdeas = db.collection('users').doc(user.uid).collection('ideas')
-        .onSnapshot(snapshot => {
-          const userIdeas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Idea[];
-          setIdeas(userIdeas);
-        });
-
-      return () => {
-        unsubscribeVibes();
-        unsubscribeIdeas();
-      };
-    } else {
-      // Clear data on logout
-      setIdeas([]);
-      setVibes(DEFAULT_VIBES);
->>>>>>> 3a082df2ab9d4b583993143b228928c8b7d54ea1
     }
   }, [ideas]);
 
@@ -101,31 +57,15 @@ const App: React.FC = () => {
   const vibesMap = useMemo(() => new Map(vibes.map(vibe => [vibe.id, vibe])), [vibes]);
   const ideasMap = useMemo(() => new Map(ideas.map(idea => [idea.id, idea])), [ideas]);
 
-<<<<<<< HEAD
   const addIdea = (ideaData: Omit<Idea, 'id' | 'timestamp'>) => {
-=======
-  const addIdea = async (ideaData: Omit<Idea, 'id' | 'timestamp'>): Promise<void> => {
-    if (!ideasCollectionRef) {
-      throw new Error("User is not authenticated. Cannot add idea.");
-    }
-
-    // 1. Create a new document reference to get a unique ID upfront.
-    const newIdeaRef = ideasCollectionRef.doc();
-    
-    // 2. Create the full new idea object for the optimistic update.
->>>>>>> 3a082df2ab9d4b583993143b228928c8b7d54ea1
     const newIdea: Idea = {
-      id: newIdeaRef.id,
       ...ideaData,
+      id: crypto.randomUUID(),
       timestamp: Date.now(),
       isArchived: false,
       isPinned: false,
     };
-    
-    // 3. Prepare the data for Firestore (without the 'id' field).
-    const { id, ...ideaToSave } = newIdea;
 
-<<<<<<< HEAD
     setIdeas(currentIdeas => {
         let updatedIdeas = [newIdea, ...currentIdeas];
         // Create two-way links
@@ -185,76 +125,6 @@ const App: React.FC = () => {
       prevIdeas.map(idea => (idea.id === id ? { ...idea, isPinned: !idea.isPinned } : idea))
     );
     if (navigator.vibrate) navigator.vibrate(30);
-=======
-    try {
-      const batch = db.batch();
-
-      batch.set(newIdeaRef, ideaToSave);
-
-      // Atomically update linked ideas to create a two-way link
-      if (ideaToSave.linkedIdeaIds && ideaToSave.linkedIdeaIds.length > 0) {
-        // @ts-ignore - 'firebase' is a global from CDN
-        const FieldValue = firebase.firestore.FieldValue;
-        ideaToSave.linkedIdeaIds.forEach(linkedId => {
-          const linkedIdeaRef = ideasCollectionRef.doc(linkedId);
-          batch.update(linkedIdeaRef, { linkedIdeaIds: FieldValue.arrayUnion(newIdeaRef.id) });
-        });
-      }
-      
-      await batch.commit();
-
-      // 4. Optimistically update the local state IMMEDIATELY after successful commit.
-      setIdeas(currentIdeas => [newIdea, ...currentIdeas]);
-      
-      if (navigator.vibrate) navigator.vibrate(50);
-    } catch (error) {
-      console.error("Error committing new idea to Firestore:", error);
-      // Re-throw the error to be caught by the calling component (IdeaForm)
-      throw error;
-    }
-  };
-  
-  const archiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: true, isPinned: false });
-  const unarchiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: false });
-  const togglePinIdea = (id: string) => {
-    const idea = ideas.find(i => i.id === id);
-    if(idea) ideasCollectionRef?.doc(id).update({ isPinned: !idea.isPinned });
-  };
-  
-  const deleteIdea = async (idToDelete: string) => {
-    if (!ideasCollectionRef) return;
-    try {
-      const batch = db.batch();
-
-      // Before deleting, query for all ideas that link to this one and remove the link.
-      // This prevents dangling references in the database.
-      const linkedFromSnapshot = await ideasCollectionRef.where('linkedIdeaIds', 'array-contains', idToDelete).get();
-      
-      if (!linkedFromSnapshot.empty) {
-        // @ts-ignore - 'firebase' is a global from CDN
-        const FieldValue = firebase.firestore.FieldValue;
-        linkedFromSnapshot.forEach(doc => {
-          batch.update(doc.ref, { linkedIdeaIds: FieldValue.arrayRemove(idToDelete) });
-        });
-      }
-
-      // Now, delete the idea itself.
-      batch.delete(ideasCollectionRef.doc(idToDelete));
-
-      await batch.commit();
-      if (navigator.vibrate) navigator.vibrate(100);
-
-    } catch (error) {
-      console.error('Error deleting idea:', error);
-      alert('خطا در حذف ایده. لطفاً دوباره تلاش کنید.');
-    }
-  };
-
-  const addVibe = (name: string) => {
-    if (!vibesCollectionRef) return;
-    const newVibeRef = vibesCollectionRef.doc();
-    newVibeRef.set({ name });
->>>>>>> 3a082df2ab9d4b583993143b228928c8b7d54ea1
   };
 
   const addVibe = (name: string) => {
@@ -316,29 +186,10 @@ const App: React.FC = () => {
         );
         
         if (isConfirmed) {
-<<<<<<< HEAD
           setVibes(data.vibes);
           setIdeas(data.ideas);
           if (navigator.vibrate) navigator.vibrate([100, 30, 100]);
           alert('اطلاعات با موفقیت وارد شد!');
-=======
-            const batch = db.batch();
-            // Delete old data
-            (await ideasCollectionRef.get()).docs.forEach(doc => batch.delete(doc.ref));
-            (await vibesCollectionRef.get()).docs.forEach(doc => batch.delete(doc.ref));
-            // Add new data
-            data.vibes.forEach((vibe: Vibe) => vibesCollectionRef.doc(vibe.id).set({ name: vibe.name }));
-            data.ideas.forEach((idea: Idea) => {
-                // When importing, we must separate the ID from the rest of the data
-                const { id, ...ideaData } = idea;
-                ideasCollectionRef.doc(id).set(ideaData);
-            });
-            
-            await batch.commit();
-
-            if (navigator.vibrate) navigator.vibrate([100, 30, 100]);
-            alert('اطلاعات با موفقیت وارد شد!');
->>>>>>> 3a082df2ab9d4b583993143b228928c8b7d54ea1
         }
       } catch (error) {
         console.error('Failed to import data:', error);
@@ -393,11 +244,11 @@ const App: React.FC = () => {
       />
 
       <main className="container mx-auto p-4 pb-24">
-        {ideas.length === 0 && !showArchived ? (
+        {ideas.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
             <i className="ph-light ph-drop text-7xl text-purple-400 opacity-50 mb-6"></i>
             <h2 className="text-2xl font-bold text-white">ذهنت رو جاری کن...</h2>
-            <p className="text-slate-400 mt-2 max-w-sm">اولین قطره را با دکمه درخشان پایین صفحه اضافه کن.</p>
+            <p className="text-slate-400 mt-2 max-w-sm">ایده‌ها مثل قطره‌های باران هستند. اولین قطره را با دکمه درخشان پایین صفحه اضافه کن.</p>
           </div>
         ) : activeIdeas.length > 0 ? (
           <div className="columns-1 sm:columns-2 lg:columns-3 gap-4">
@@ -416,13 +267,11 @@ const App: React.FC = () => {
             ))}
           </div>
         ) : (
-          !showArchived && (
-            <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
-              <i className="ph-light ph-books text-7xl text-purple-400 opacity-50 mb-6"></i>
-              <h2 className="text-2xl font-bold text-white">ایده فعالی نیست</h2>
-              <p className="text-slate-400 mt-2 max-w-sm">برای دیدن ایده‌های بایگانی شده، دکمه آرشیو را در بالا بزنید.</p>
-            </div>
-          )
+          <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
+            <i className="ph-light ph-books text-7xl text-purple-400 opacity-50 mb-6"></i>
+            <h2 className="text-2xl font-bold text-white">ایده فعالی نیست</h2>
+            <p className="text-slate-400 mt-2 max-w-sm">برای دیدن ایده‌های بایگانی شده، دکمه آرشیو را در بالا بزنید.</p>
+          </div>
         )}
 
         {showArchived && (
