@@ -308,6 +308,10 @@ const App: React.FC = () => {
         )}
       </main>
 
+      <footer className="text-center p-6 text-slate-500 text-sm">
+          ساخته شده توسط A.M code
+      </footer>
+
       <FloatingActionButton onClick={() => setIdeaModalOpen(true)} />
 
       <Modal isOpen={isIdeaModalOpen} onClose={() => setIdeaModalOpen(false)} title="ایده جدید">
