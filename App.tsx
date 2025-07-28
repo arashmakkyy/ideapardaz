@@ -51,13 +51,10 @@ const App: React.FC = () => {
       // Subscribe to vibes
       const vibesRef = db.collection('users').doc(user.uid).collection('vibes');
       const unsubscribeVibes = vibesRef.onSnapshot(snapshot => {
-        if (!snapshot.empty) {
-          const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
-          setVibes(userVibes);
-        } else {
-           // If vibes are empty (might happen in rare cases), set defaults
-           setVibes(DEFAULT_VIBES);
-        }
+        const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
+        // The source of truth is Firestore. If it's empty, it's empty.
+        // A new user has default vibes created for them in LoginScreen.
+        setVibes(userVibes);
       });
       
       // Subscribe to ideas
@@ -89,23 +86,28 @@ const App: React.FC = () => {
       throw new Error("User is not authenticated. Cannot add idea.");
     }
 
-    const newIdea: Idea = {
+    // Let Firestore generate a new ID by creating a new document reference
+    const newIdeaRef = ideasCollectionRef.doc();
+    
+    // Prepare the data payload, WITHOUT the 'id' field
+    const ideaPayload = {
       ...ideaData,
-      id: crypto.randomUUID(),
       timestamp: Date.now(),
       isArchived: false,
       isPinned: false,
     };
 
     const batch = db.batch();
-    batch.set(ideasCollectionRef.doc(newIdea.id), newIdea);
 
-    // Create two-way links
-    if (newIdea.linkedIdeaIds && newIdea.linkedIdeaIds.length > 0) {
-      newIdea.linkedIdeaIds.forEach(linkedId => {
+    // Set the data for the new document
+    batch.set(newIdeaRef, ideaPayload);
+
+    // Update linked ideas to create a two-way link
+    if (ideaPayload.linkedIdeaIds && ideaPayload.linkedIdeaIds.length > 0) {
+      ideaPayload.linkedIdeaIds.forEach(linkedId => {
         const linkedIdea = ideas.find(i => i.id === linkedId);
         if (linkedIdea) {
-          const newLinkedIds = Array.from(new Set([...(linkedIdea.linkedIdeaIds || []), newIdea.id]));
+          const newLinkedIds = Array.from(new Set([...(linkedIdea.linkedIdeaIds || []), newIdeaRef.id]));
           batch.update(ideasCollectionRef.doc(linkedId), { linkedIdeaIds: newLinkedIds });
         }
       });
@@ -147,8 +149,8 @@ const App: React.FC = () => {
 
   const addVibe = (name: string) => {
     if (!vibesCollectionRef) return;
-    const newVibe: Vibe = { id: crypto.randomUUID(), name };
-    vibesCollectionRef.doc(newVibe.id).set({ name });
+    const newVibeRef = vibesCollectionRef.doc();
+    newVibeRef.set({ name });
   };
   
   const deleteVibe = (id: string) => {
@@ -210,8 +212,12 @@ const App: React.FC = () => {
             (await ideasCollectionRef.get()).docs.forEach(doc => batch.delete(doc.ref));
             (await vibesCollectionRef.get()).docs.forEach(doc => batch.delete(doc.ref));
             // Add new data
-            data.vibes.forEach((vibe: Vibe) => batch.set(vibesCollectionRef.doc(vibe.id), { name: vibe.name }));
-            data.ideas.forEach((idea: Idea) => batch.set(ideasCollectionRef.doc(idea.id), idea));
+            data.vibes.forEach((vibe: Vibe) => vibesCollectionRef.doc(vibe.id).set({ name: vibe.name }));
+            data.ideas.forEach((idea: Idea) => {
+                // When importing, we must separate the ID from the rest of the data
+                const { id, ...ideaData } = idea;
+                ideasCollectionRef.doc(id).set(ideaData);
+            });
             
             await batch.commit();
 
@@ -286,7 +292,7 @@ const App: React.FC = () => {
       />
 
       <main className="container mx-auto p-4 pb-24">
-        {ideas.length === 0 ? (
+        {ideas.length === 0 && !showArchived ? (
           <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
             <i className="ph-light ph-drop text-7xl text-purple-400 opacity-50 mb-6"></i>
             <h2 className="text-2xl font-bold text-white">ذهنت رو جاری کن...</h2>
@@ -309,11 +315,13 @@ const App: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
-            <i className="ph-light ph-books text-7xl text-purple-400 opacity-50 mb-6"></i>
-            <h2 className="text-2xl font-bold text-white">ایده فعالی نیست</h2>
-            <p className="text-slate-400 mt-2 max-w-sm">برای دیدن ایده‌های بایگانی شده، دکمه آرشیو را در بالا بزنید.</p>
-          </div>
+          !showArchived && (
+            <div className="flex flex-col items-center justify-center text-center py-20 animate-fade-in-up">
+              <i className="ph-light ph-books text-7xl text-purple-400 opacity-50 mb-6"></i>
+              <h2 className="text-2xl font-bold text-white">ایده فعالی نیست</h2>
+              <p className="text-slate-400 mt-2 max-w-sm">برای دیدن ایده‌های بایگانی شده، دکمه آرشیو را در بالا بزنید.</p>
+            </div>
+          )
         )}
 
         {showArchived && (
