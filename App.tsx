@@ -7,6 +7,8 @@ import Modal from './components/Modal';
 import IdeaForm from './components/IdeaForm';
 import CategoryManager from './components/CategoryManager';
 import ShareModal from './components/ShareModal';
+import LoginScreen from './components/LoginScreen';
+import { auth, db } from './firebaseConfig';
 
 const DEFAULT_VIBES: Vibe[] = [
   { id: '1', name: '🚀 پروژه' },
@@ -14,50 +16,70 @@ const DEFAULT_VIBES: Vibe[] = [
   { id: '3', name: '💡 لامپ' },
 ];
 
-// Helper to read from localStorage safely
-const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
-  try {
-    const item = window.localStorage.getItem(key);
-    return item ? JSON.parse(item) : defaultValue;
-  } catch (error) {
-    console.error(`Error reading storage key "${key}":`, error);
-    return defaultValue;
-  }
-};
-
-
 const App: React.FC = () => {
-  const [ideas, setIdeas] = useState<Idea[]>(() => loadFromStorage('ideas', []));
-  const [vibes, setVibes] = useState<Vibe[]>(() => loadFromStorage('vibes', DEFAULT_VIBES));
+  const [user, setUser] = useState<firebase.User | null>(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [vibes, setVibes] = useState<Vibe[]>(DEFAULT_VIBES);
   const [isIdeaModalOpen, setIdeaModalOpen] = useState(false);
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [ideaToShare, setIdeaToShare] = useState<Idea | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
 
-  // Effect to save ideas to localStorage whenever they change
   useEffect(() => {
-    try {
-      window.localStorage.setItem('ideas', JSON.stringify(ideas));
-    } catch (error) {
-      console.error('Error saving ideas to localStorage:', error);
-    }
-  }, [ideas]);
+    const unsubscribe = auth.onAuthStateChanged(firebaseUser => {
+      setUser(firebaseUser);
+      setLoadingAuth(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // Effect to save vibes to localStorage whenever they change
   useEffect(() => {
-    try {
-      window.localStorage.setItem('vibes', JSON.stringify(vibes));
-    } catch (error) {
-      console.error('Error saving vibes to localStorage:', error);
-    }
-  }, [vibes]);
+    if (user) {
+      // Subscribe to vibes
+      const vibesRef = db.collection('users').doc(user.uid).collection('vibes');
+      const unsubscribeVibes = vibesRef.onSnapshot(async snapshot => {
+        if (snapshot.empty) {
+          // First time user, let's add default vibes
+          const batch = db.batch();
+          DEFAULT_VIBES.forEach(vibe => {
+            batch.set(vibesRef.doc(vibe.id), { name: vibe.name });
+          });
+          await batch.commit();
+          setVibes(DEFAULT_VIBES);
+        } else {
+          const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
+          setVibes(userVibes);
+        }
+      });
+      
+      // Subscribe to ideas
+      const unsubscribeIdeas = db.collection('users').doc(user.uid).collection('ideas')
+        .onSnapshot(snapshot => {
+          const userIdeas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Idea[];
+          setIdeas(userIdeas);
+        });
 
+      return () => {
+        unsubscribeVibes();
+        unsubscribeIdeas();
+      };
+    } else {
+      // Clear data on logout
+      setIdeas([]);
+      setVibes(DEFAULT_VIBES);
+    }
+  }, [user]);
 
   const vibesMap = useMemo(() => new Map(vibes.map(vibe => [vibe.id, vibe])), [vibes]);
   const ideasMap = useMemo(() => new Map(ideas.map(idea => [idea.id, idea])), [ideas]);
+  
+  const ideasCollectionRef = user ? db.collection('users').doc(user.uid).collection('ideas') : null;
+  const vibesCollectionRef = user ? db.collection('users').doc(user.uid).collection('vibes') : null;
 
-  const addIdea = (ideaData: Omit<Idea, 'id' | 'timestamp'>) => {
+  const addIdea = async (ideaData: Omit<Idea, 'id' | 'timestamp'>) => {
+    if (!ideasCollectionRef) return;
     const newIdea: Idea = {
       ...ideaData,
       id: crypto.randomUUID(),
@@ -66,79 +88,60 @@ const App: React.FC = () => {
       isPinned: false,
     };
 
-    setIdeas(currentIdeas => {
-        let updatedIdeas = [newIdea, ...currentIdeas];
-        // Create two-way links
-        if (newIdea.linkedIdeaIds && newIdea.linkedIdeaIds.length > 0) {
-          updatedIdeas = updatedIdeas.map(idea => {
-            if (newIdea.linkedIdeaIds!.includes(idea.id)) {
-              const newLinkedIds = new Set([...(idea.linkedIdeaIds || []), newIdea.id]);
-              return { ...idea, linkedIdeaIds: Array.from(newLinkedIds) };
-            }
-            return idea;
-          });
-        }
-        return updatedIdeas;
-    });
+    const batch = db.batch();
+    batch.set(ideasCollectionRef.doc(newIdea.id), newIdea);
 
+    // Create two-way links
+    if (newIdea.linkedIdeaIds && newIdea.linkedIdeaIds.length > 0) {
+      newIdea.linkedIdeaIds.forEach(linkedId => {
+        const linkedIdea = ideas.find(i => i.id === linkedId);
+        if (linkedIdea) {
+          const newLinkedIds = Array.from(new Set([...(linkedIdea.linkedIdeaIds || []), newIdea.id]));
+          batch.update(ideasCollectionRef.doc(linkedId), { linkedIdeaIds: newLinkedIds });
+        }
+      });
+    }
+    await batch.commit();
     if (navigator.vibrate) navigator.vibrate(50);
   };
-
-  const archiveIdea = (id: string) => {
-    setIdeas(prevIdeas => prevIdeas.map(idea => idea.id === id ? { ...idea, isArchived: true, isPinned: false } : idea));
-    if (navigator.vibrate) navigator.vibrate(30);
+  
+  const archiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: true, isPinned: false });
+  const unarchiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: false });
+  const togglePinIdea = (id: string) => {
+    const idea = ideas.find(i => i.id === id);
+    if(idea) ideasCollectionRef?.doc(id).update({ isPinned: !idea.isPinned });
   };
+  
+  const deleteIdea = async (idToDelete: string) => {
+    if (!ideasCollectionRef) return;
+    const batch = db.batch();
+    batch.delete(ideasCollectionRef.doc(idToDelete));
 
-  const unarchiveIdea = (id: string) => {
-    setIdeas(prevIdeas => prevIdeas.map(idea => idea.id === id ? { ...idea, isArchived: false } : idea));
-    if (navigator.vibrate) navigator.vibrate(30);
-  };
+    // Remove links from other ideas
+    ideas.forEach(idea => {
+      if (idea.linkedIdeaIds?.includes(idToDelete)) {
+        const updatedLinks = idea.linkedIdeaIds.filter(linkId => linkId !== idToDelete);
+        batch.update(ideasCollectionRef.doc(idea.id), { linkedIdeaIds: updatedLinks });
+      }
+    });
 
-  const deleteIdea = (idToDelete: string) => {
-    setIdeas(currentIdeas => 
-        currentIdeas.reduce((acc, idea) => {
-            // If it's the idea to be deleted, skip it by not adding it to the accumulator.
-            if (idea.id === idToDelete) {
-                return acc;
-            }
-
-            // For all other ideas, check if they are linked to the deleted idea.
-            if (idea.linkedIdeaIds?.includes(idToDelete)) {
-                // If so, add a new version of the idea with the link removed.
-                acc.push({
-                    ...idea,
-                    linkedIdeaIds: idea.linkedIdeaIds.filter(linkId => linkId !== idToDelete),
-                });
-            } else {
-                // Otherwise, add the idea as is.
-                acc.push(idea);
-            }
-            return acc;
-        }, [] as Idea[])
-    );
-    
+    await batch.commit();
     if (navigator.vibrate) navigator.vibrate(100);
   };
 
-  const togglePinIdea = (id: string) => {
-    setIdeas(prevIdeas =>
-      prevIdeas.map(idea => (idea.id === id ? { ...idea, isPinned: !idea.isPinned } : idea))
-    );
-    if (navigator.vibrate) navigator.vibrate(30);
-  };
-
   const addVibe = (name: string) => {
+    if (!vibesCollectionRef) return;
     const newVibe: Vibe = { id: crypto.randomUUID(), name };
-    setVibes(prev => [...prev, newVibe]);
+    vibesCollectionRef.doc(newVibe.id).set({ name });
   };
-
+  
   const deleteVibe = (id: string) => {
     if (DEFAULT_VIBES.some(v => v.id === id)) return;
     if (ideas.some(idea => idea.vibeId === id)) {
       alert('نمی‌توانید وایبی که برای یک ایده استفاده شده را حذف کنید.');
       return;
     }
-    setVibes(prevVibes => prevVibes.filter(vibe => vibe.id !== id));
+    vibesCollectionRef?.doc(id).delete();
   };
   
   const handleExportData = () => {
@@ -168,10 +171,10 @@ const App: React.FC = () => {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !ideasCollectionRef || !vibesCollectionRef) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const text = e.target?.result;
         if (typeof text !== 'string') throw new Error('File content is not text.');
@@ -182,14 +185,22 @@ const App: React.FC = () => {
         }
 
         const isConfirmed = window.confirm(
-          'آیا مطمئن هستید؟ با این کار تمام اطلاعات فعلی شما بازنویسی خواهد شد.'
+          'آیا مطمئن هستید؟ با این کار تمام اطلاعات فعلی شما در فضای ابری بازنویسی خواهد شد.'
         );
         
         if (isConfirmed) {
-          setVibes(data.vibes);
-          setIdeas(data.ideas);
-          if (navigator.vibrate) navigator.vibrate([100, 30, 100]);
-          alert('اطلاعات با موفقیت وارد شد!');
+            const batch = db.batch();
+            // Delete old data
+            (await ideasCollectionRef.get()).docs.forEach(doc => batch.delete(doc.ref));
+            (await vibesCollectionRef.get()).docs.forEach(doc => batch.delete(doc.ref));
+            // Add new data
+            data.vibes.forEach((vibe: Vibe) => batch.set(vibesCollectionRef.doc(vibe.id), { name: vibe.name }));
+            data.ideas.forEach((idea: Idea) => batch.set(ideasCollectionRef.doc(idea.id), idea));
+            
+            await batch.commit();
+
+            if (navigator.vibrate) navigator.vibrate([100, 30, 100]);
+            alert('اطلاعات با موفقیت وارد شد!');
         }
       } catch (error) {
         console.error('Failed to import data:', error);
@@ -205,7 +216,8 @@ const App: React.FC = () => {
     };
     reader.readAsText(file);
   };
-
+  
+  const handleLogout = () => auth.signOut();
 
   const { activeIdeas, archivedIdeas } = useMemo(() => {
     const allActive = ideas.filter(idea => !idea.isArchived);
@@ -225,6 +237,18 @@ const App: React.FC = () => {
 
   const handleShare = (idea: Idea) => setIdeaToShare(idea);
 
+  if (loadingAuth) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+         <i className="ph-bold ph-circle-notch text-4xl text-purple-400 animate-spin"></i>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
   return (
     <div className="min-h-screen">
       <input
@@ -241,6 +265,7 @@ const App: React.FC = () => {
         isArchivedVisible={showArchived}
         onExport={handleExportData}
         onImport={handleImportClick}
+        onLogout={handleLogout}
       />
 
       <main className="container mx-auto p-4 pb-24">
@@ -306,6 +331,10 @@ const App: React.FC = () => {
             )}
           </>
         )}
+
+        <footer className="text-center text-slate-500 text-sm mt-12">
+            ساخته شده توسط A.M code
+        </footer>
       </main>
 
       <FloatingActionButton onClick={() => setIdeaModalOpen(true)} />
