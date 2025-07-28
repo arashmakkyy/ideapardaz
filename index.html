@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ایده‌پرداز</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+      :root {
+        --bg-color-1: #6D5BBA;
+        --bg-color-2: #9659A7;
+        --bg-color-3: #2E6EB5;
+        --accent-color-1: #f871b5; /* pink */
+        --accent-color-2: #5eead4; /* cyan */
+      }
+
+      body {
+        font-family: 'Vazirmatn', sans-serif;
+        -webkit-tap-highlight-color: transparent;
+        color: #f1f5f9; /* slate-100 */
+        background-color: #0f172a; /* slate-900 */
+        overflow: hidden; /* Hide scrollbars from mesh */
+      }
+
+      /* Animated Mesh Gradient Background */
+      body::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at 10% 20%, var(--bg-color-1), transparent 40%),
+                    radial-gradient(circle at 80% 90%, var(--bg-color-2), transparent 40%),
+                    radial-gradient(circle at 50% 50%, var(--bg-color-3), transparent 40%);
+        filter: blur(100px);
+        z-index: -1;
+        animation: animate-mesh 20s ease-in-out infinite alternate;
+      }
+      
+      @keyframes animate-mesh {
+        0% { transform: scale(1) rotate(0deg); }
+        100% { transform: scale(1.2) rotate(20deg); }
+      }
+      
+      /* Main content wrapper with scroll */
+      #root {
+        height: 100vh;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      /* Custom Scrollbar for #root */
+      #root::-webkit-scrollbar { width: 6px; }
+      #root::-webkit-scrollbar-track { background: transparent; }
+      #root::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+      #root::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+      /* Custom animations */
+      @keyframes flow-in {
+        from { opacity: 0; transform: translateY(100%) scale(0.8); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes fade-in-up {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .animate-flow-in { 
+        animation: flow-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+      }
+      .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
+
+      /* Masonry layout helper */
+      .break-inside-avoid {
+        break-inside: avoid;
+      }
+      
+      .clip-hexagon {
+        clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "html-to-image": "https://esm.sh/html-to-image@1.11.11"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
