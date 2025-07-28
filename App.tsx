@@ -16,8 +16,11 @@ const DEFAULT_VIBES: Vibe[] = [
   { id: '3', name: '💡 لامپ' },
 ];
 
+// Extend the firebase.User type to include our custom displayName
+type AppUser = firebase.User & { displayName: string | null };
+
 const App: React.FC = () => {
-  const [user, setUser] = useState<firebase.User | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [vibes, setVibes] = useState<Vibe[]>(DEFAULT_VIBES);
@@ -28,8 +31,16 @@ const App: React.FC = () => {
   const importFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(firebaseUser => {
-      setUser(firebaseUser);
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      if (firebaseUser) {
+        // User is logged in. Fetch their profile from Firestore to get the full name.
+        const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+        const displayName = userDoc.exists ? userDoc.data()?.displayName : firebaseUser.displayName;
+        setUser({ ...firebaseUser, displayName });
+      } else {
+        // User is logged out.
+        setUser(null);
+      }
       setLoadingAuth(false);
     });
     return () => unsubscribe();
@@ -39,18 +50,13 @@ const App: React.FC = () => {
     if (user) {
       // Subscribe to vibes
       const vibesRef = db.collection('users').doc(user.uid).collection('vibes');
-      const unsubscribeVibes = vibesRef.onSnapshot(async snapshot => {
-        if (snapshot.empty) {
-          // First time user, let's add default vibes
-          const batch = db.batch();
-          DEFAULT_VIBES.forEach(vibe => {
-            batch.set(vibesRef.doc(vibe.id), { name: vibe.name });
-          });
-          await batch.commit();
-          setVibes(DEFAULT_VIBES);
-        } else {
+      const unsubscribeVibes = vibesRef.onSnapshot(snapshot => {
+        if (!snapshot.empty) {
           const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
           setVibes(userVibes);
+        } else {
+           // If vibes are empty (might happen in rare cases), set defaults
+           setVibes(DEFAULT_VIBES);
         }
       });
       
@@ -260,6 +266,7 @@ const App: React.FC = () => {
         aria-hidden="true"
       />
       <Header 
+        userName={user.displayName}
         onManageVibes={() => setCategoryModalOpen(true)}
         onToggleArchived={() => setShowArchived(prev => !prev)}
         isArchivedVisible={showArchived}

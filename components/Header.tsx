@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 interface HeaderProps {
+    userName: string | null;
     onManageVibes: () => void;
     onToggleArchived: () => void;
     isArchivedVisible: boolean;
@@ -9,7 +10,7 @@ interface HeaderProps {
     onLogout: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onManageVibes, onToggleArchived, isArchivedVisible, onExport, onImport, onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ userName, onManageVibes, onToggleArchived, isArchivedVisible, onExport, onImport, onLogout }) => {
   const [isMenuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -29,14 +30,17 @@ const Header: React.FC<HeaderProps> = ({ onManageVibes, onToggleArchived, isArch
     action();
     setMenuOpen(false);
   };
+  
+  const greeting = userName ? `سلام، ${userName.split(' ')[0]}` : 'ایده‌پرداز';
 
   return (
     <header className="sticky top-0 z-30 p-4 bg-slate-900/50 backdrop-blur-lg">
       <div className="container mx-auto flex justify-between items-center">
         <h1 
-          className="text-3xl font-bold bg-gradient-to-r from-slate-100 to-slate-400 text-transparent bg-clip-text"
+          className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-slate-100 to-slate-400 text-transparent bg-clip-text truncate"
+          title={userName ? `سلام، ${userName}` : 'ایده‌پرداز'}
         >
-          ایده‌پرداز
+          {greeting}
         </h1>
         <div className="flex items-center gap-2">
            <button 

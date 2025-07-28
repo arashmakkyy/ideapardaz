@@ -1,18 +1,23 @@
-// This file provides type definitions for Firebase and reCAPTCHA loaded from CDNs,
-// which are available as global variables (`firebase` and `grecaptcha`) at runtime.
+// This file provides type definitions for Firebase loaded from a CDN,
+// which is available as a global `firebase` object at runtime.
 // This resolves TypeScript compilation errors without changing application logic.
 
-/**
- * Declares the global `firebase` object provided by the Firebase SDK.
- */
 declare namespace firebase {
+  /**
+   * Represents a user credential.
+   */
+  interface UserCredential {
+    user: User | null;
+  }
+
   /**
    * A user record from Firebase Authentication.
    */
   interface User {
     uid: string;
-    phoneNumber: string | null;
-    // Add any other user properties your app uses here.
+    email: string | null;
+    displayName: string | null;
+    updateProfile(profile: { displayName?: string | null; photoURL?: string | null; }): Promise<void>;
   }
 
   /**
@@ -20,12 +25,14 @@ declare namespace firebase {
    */
   interface Auth {
     /**
-     * Signs in with a phone number.
+     * Creates a new user account.
      */
-    signInWithPhoneNumber(
-      phoneNumber: string,
-      verifier: auth.RecaptchaVerifier
-    ): Promise<auth.ConfirmationResult>;
+    createUserWithEmailAndPassword(email: string, password: string): Promise<UserCredential>;
+
+    /**
+     * Signs in a user with an email and password.
+     */
+    signInWithEmailAndPassword(email: string, password: string): Promise<UserCredential>;
 
     /**
      * Listens for changes to the user's sign-in state.
@@ -39,47 +46,11 @@ declare namespace firebase {
   }
 
   /**
-   * The namespace for Firebase Authentication types and classes.
-   */
-  namespace auth {
-    /**
-     * An object returned by `signInWithPhoneNumber` to complete the sign-in process.
-     */
-    interface ConfirmationResult {
-      confirm(verificationCode: string): Promise<any>; // Can be more specific if UserCredential type is defined
-    }
-
-    /**
-     * The reCAPTCHA verifier class.
-     */
-    class RecaptchaVerifier {
-      constructor(
-        container: string | HTMLElement,
-        parameters?: {
-          size?: 'invisible' | 'normal' | 'compact';
-          callback?: (response: any) => void;
-          'expired-callback'?: () => void;
-          'error-callback'?: (error: any) => void;
-        }
-      );
-      render(): Promise<number>;
-    }
-  }
-
-  /**
    * Returns the `Auth` service instance.
    */
   function auth(): Auth;
   
   function initializeApp(options: object, name?: string): any;
+  
+  function firestore(): any; // Simplified for this context
 }
-
-/**
- * Declares the global `grecaptcha` object provided by the reCAPTCHA API.
- */
-declare const grecaptcha: {
-  /**
-   * Resets the reCAPTCHA widget.
-   */
-  reset(widgetId?: number): void;
-};
