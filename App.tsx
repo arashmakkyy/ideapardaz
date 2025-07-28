@@ -48,13 +48,29 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      // Subscribe to vibes
       const vibesRef = db.collection('users').doc(user.uid).collection('vibes');
       const unsubscribeVibes = vibesRef.onSnapshot(snapshot => {
-        const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
-        // The source of truth is Firestore. If it's empty, it's empty.
-        // A new user has default vibes created for them in LoginScreen.
-        setVibes(userVibes);
+        // If snapshot is empty and there are no pending writes, it means an old user
+        // without vibes. Let's create the default ones for them.
+        if (snapshot.empty && !snapshot.metadata.hasPendingWrites) {
+          console.log('User has no vibes, creating default ones.');
+          const batch = db.batch();
+          DEFAULT_VIBES.forEach(vibe => {
+            const newVibeRef = vibesRef.doc(vibe.id);
+            batch.set(newVibeRef, { name: vibe.name });
+          });
+          // This commit will trigger the snapshot listener again.
+          batch.commit().catch(e => console.error('Failed to create default vibes:', e));
+          // Set vibes locally for immediate UI update.
+          setVibes(DEFAULT_VIBES);
+        } else {
+          const userVibes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vibe[];
+          // Only update if there are actually vibes, to prevent flicker with an empty array
+          // while the default ones are being written.
+          if (userVibes.length > 0) {
+            setVibes(userVibes);
+          }
+        }
       });
       
       // Subscribe to ideas
