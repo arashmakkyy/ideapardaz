@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Idea, Vibe } from './types';
 import Header from './components/Header';
 import IdeaCard from './components/IdeaCard';
@@ -82,11 +81,15 @@ const App: React.FC = () => {
   const ideasCollectionRef = user ? db.collection('users').doc(user.uid).collection('ideas') : null;
   const vibesCollectionRef = user ? db.collection('users').doc(user.uid).collection('vibes') : null;
 
-  const addIdea = useCallback(async (ideaData: Omit<Idea, 'id' | 'timestamp'>): Promise<void> => {
+  const addIdea = async (ideaData: Omit<Idea, 'id' | 'timestamp'>): Promise<void> => {
     if (!ideasCollectionRef) {
       throw new Error("User is not authenticated. Cannot add idea.");
     }
+
+    // Let Firestore generate a new ID by creating a new document reference
+    const newIdeaRef = ideasCollectionRef.doc();
     
+    // Prepare the data payload, WITHOUT the 'id' field
     const ideaPayload = {
       ...ideaData,
       timestamp: Date.now(),
@@ -94,31 +97,31 @@ const App: React.FC = () => {
       isPinned: false,
     };
 
+    const batch = db.batch();
+
+    // Set the data for the new document
+    batch.set(newIdeaRef, ideaPayload);
+
+    // Update linked ideas to create a two-way link
+    if (ideaPayload.linkedIdeaIds && ideaPayload.linkedIdeaIds.length > 0) {
+      ideaPayload.linkedIdeaIds.forEach(linkedId => {
+        const linkedIdea = ideas.find(i => i.id === linkedId);
+        if (linkedIdea) {
+          const newLinkedIds = Array.from(new Set([...(linkedIdea.linkedIdeaIds || []), newIdeaRef.id]));
+          batch.update(ideasCollectionRef.doc(linkedId), { linkedIdeaIds: newLinkedIds });
+        }
+      });
+    }
+    
     try {
-      // First, add the new idea to get its ID from the server.
-      const newIdeaRef = await ideasCollectionRef.add(ideaPayload);
-      
-      // Then, if there are any ideas to link, update them in a batch.
-      // This makes the creation robust; the idea is saved even if linking fails.
-      if (ideaData.linkedIdeaIds && ideaData.linkedIdeaIds.length > 0) {
-        const linkingBatch = db.batch();
-        ideaData.linkedIdeaIds.forEach(linkedId => {
-          const linkedIdea = ideas.find(i => i.id === linkedId);
-          if (linkedIdea) {
-            const newLinkedIds = Array.from(new Set([...(linkedIdea.linkedIdeaIds || []), newIdeaRef.id]));
-            linkingBatch.update(ideasCollectionRef.doc(linkedId), { linkedIdeaIds: newLinkedIds });
-          }
-        });
-        await linkingBatch.commit();
-      }
-      
+      await batch.commit();
       if (navigator.vibrate) navigator.vibrate(50);
     } catch (error) {
-      console.error("Error saving new idea to Firestore:", error);
-      // Re-throw to be handled by the form
+      console.error("Error committing new idea to Firestore:", error);
+      // Re-throw the error to be caught by the calling component (IdeaForm)
       throw error;
     }
-  }, [ideas, ideasCollectionRef]);
+  };
   
   const archiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: true, isPinned: false });
   const unarchiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: false });
