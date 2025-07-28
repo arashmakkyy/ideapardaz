@@ -84,8 +84,11 @@ const App: React.FC = () => {
   const ideasCollectionRef = user ? db.collection('users').doc(user.uid).collection('ideas') : null;
   const vibesCollectionRef = user ? db.collection('users').doc(user.uid).collection('vibes') : null;
 
-  const addIdea = async (ideaData: Omit<Idea, 'id' | 'timestamp'>) => {
-    if (!ideasCollectionRef) return;
+  const addIdea = async (ideaData: Omit<Idea, 'id' | 'timestamp'>): Promise<void> => {
+    if (!ideasCollectionRef) {
+      throw new Error("User is not authenticated. Cannot add idea.");
+    }
+
     const newIdea: Idea = {
       ...ideaData,
       id: crypto.randomUUID(),
@@ -107,8 +110,15 @@ const App: React.FC = () => {
         }
       });
     }
-    await batch.commit();
-    if (navigator.vibrate) navigator.vibrate(50);
+    
+    try {
+      await batch.commit();
+      if (navigator.vibrate) navigator.vibrate(50);
+    } catch (error) {
+      console.error("Error committing new idea to Firestore:", error);
+      // Re-throw the error to be caught by the calling component (IdeaForm)
+      throw error;
+    }
   };
   
   const archiveIdea = (id: string) => ideasCollectionRef?.doc(id).update({ isArchived: true, isPinned: false });
